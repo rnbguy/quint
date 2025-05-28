@@ -4,45 +4,15 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to release binaries
+        required: true
+        type: string
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./quint
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install node
-        uses: actions/setup-node@v3
-        with:
-          node-version: "17"
-          registry-url: "https://registry.npmjs.org"
-      - name: Compile
-        run: npm ci
-      - name: Test
-        run: npm run test
-      - name: Extract release notes
-        # Get the release notes for the version by printing all lines between lines
-        # starting with the version header and ending with the next version header,
-        # inclusive. We then drop the last line to remove the subsequent version header.
-        run: |
-          version=$(npm pkg get version | sed 's/"//g')
-          sed -n "/## v$version/,/## v/p" ../CHANGELOG.md | head -n -1 > ${{ github.workspace }}/release-notes.txt
-      - name: Release
-        # See https://github.com/softprops/action-gh-release#-external-release-notes
-        uses: softprops/action-gh-release@v1
-        with:
-          body_path: ${{ github.workspace }}/release-notes.txt
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish
-        # See https://docs.github.com/en/actions/publishing-packages/publishing-nodejs-packages#publishing-packages-to-the-npm-registry
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
   wait-for-npm:
-    needs: release
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.npm-ready.outputs.version }}
@@ -51,7 +21,7 @@ jobs:
         id: npm-ready
         timeout-minutes: 30
         env:
-          REF_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ inputs.version }}
         run: |
           while ! curl -s https://registry.npmjs.org/@informalsystems/quint | jq -er ".versions.\"${REF_NAME#v}\""; do
             echo "Waiting for NPM to publish version ${REF_NAME#v}..."
@@ -103,7 +73,7 @@ jobs:
       - name: Upload assets
         env:
           GH_REPO: ${{ github.repository }}
-          REF_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ inputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./.github/upload-binaries.sh "$GH_REPO" "$REF_NAME" --publish
+          ./.github/upload-binaries.sh "$GH_REPO" "$REF_NAME"
